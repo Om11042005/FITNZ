@@ -79,3 +79,54 @@ def add_user(name, contact, username, password, role, address):
         return None
     finally:
         conn.close()
+
+
+# Sahil Part
+
+
+# Rajina:
+def update_customer_membership(customer_id, new_tier):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        if USE_MYSQL and mysql:
+            cur.execute("UPDATE users SET membership_level=%s WHERE user_id=%s OR username=%s OR id=%s", (new_tier, customer_id, customer_id, customer_id))
+        else:
+            cur.execute("UPDATE users SET membership_level=? WHERE user_id=? OR username=? OR id=?", (new_tier, customer_id, customer_id, customer_id))
+        conn.commit(); conn.close(); return True
+    except Exception as e:
+        return False
+# Rajina:
+def upgrade_to_student_membership(customer_id):
+    return update_customer_membership(customer_id, "Student")
+
+# Rajina:
+def get_all_sales():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        rows = cur.execute("""
+            SELECT s.id, s.datetime, s.customer_id, s.total, s.gst, s.delivery_date,
+                   c.name AS customer_name
+            FROM sales s
+            LEFT JOIN customers c ON c.customer_id = s.customer_id
+            ORDER BY s.datetime DESC
+        """).fetchall()
+
+        data = []
+        for r in rows:
+            data.append({
+                "sale_id": r[0],
+                "datetime": r[1],
+                "customer": r[6] or "Walk-in",
+                "total": r[3],
+                "gst": r[4],
+                "delivery_date": r[5]
+            })
+
+        conn.close()
+        return data
+    except Exception as e:
+        print("get_all_sales error:", e)
+        return []
+

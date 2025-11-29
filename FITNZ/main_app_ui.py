@@ -1161,6 +1161,473 @@ class ProductManagementPage(bs.Toplevel):
         # Load current products
         self.load_products()
 
+# Umang part
+
+    
+# ===============================================
+# Code Owner: Sahil (US: Checkout/Order History/Stock Alerts)
+# ===============================================
+    def process_payment(self, payment_method):
+        """Process the sale with the given payment method"""
+        try:
+            # Prepare products for database
+            products_for_db = []
+            for item in self.sale_items:
+                # Add each product quantity times
+                for _ in range(item['quantity']):
+                    products_for_db.append(item['product'])
+            
+            # Calculate delivery date (next day for in-store)
+            delivery_date = date.today()
+            
+            # Process sale
+            success = db.process_sale(
+                self.customer,
+                products_for_db,
+                self.points_redeemed,
+                False,  # student_discount_applied
+                delivery_date,
+            )
+            
+            if success:
+                # --- LOYALTY POINT UPDATE ---
+                if self.customer:
+                    old = getattr(self.customer, "loyalty_points", 0)
+                    used = self.points_redeemed
+                    spent = self.total
+
+                    # Deduct used points
+                    remaining = max(0, old - used)
+
+                    # Earn new points (1 point per $10 spent)
+                    earned = int(spent // 10)
+
+                    final_points = remaining + earned
+
+                    # Get correct customer ID safely
+                    cust_id = (
+                        getattr(self.customer, "customer_id", None)
+                        or getattr(self.customer, "_customer_id", None)
+                        or getattr(self.customer, "id", None)
+                    )
+
+                    # Save to database
+                    if cust_id:
+                        db.update_customer_points(cust_id, final_points)
+
+                    # Update in memory
+                    self.customer.loyalty_points = final_points
+
+                # Continue to receipt
+                self.show_receipt(payment_method)
+            else:
+                Messagebox.show_error("Failed to process sale. Please try again.", "Error", parent=self)
+                
+        except Exception as e:
+            Messagebox.show_error(f"An error occurred: {str(e)}", "Error", parent=self)
+
+    def show_receipt(self, payment_method):
+        """
+        Modified to include GST, points redeemed, and remaining points.
+        """
+
+        success, remaining_points, gst_total, grand_total = db.process_sale(
+            self.customer,
+            [item['product'] for item in self.sale_items for _ in range(item['quantity'])],
+            self.points_redeemed,
+            False,  # student discount not used here
+            date.today()
+        )
+
+        if not success:
+            Messagebox.show_error("Failed to process sale.", "Error", parent=self)
+            return
+
+        # Build receipt info with new fields
+        receipt_items = []
+        for item in self.sale_items:
+            receipt_items.append({
+                'name': item['product'].name,
+                'price': item['product'].price,
+                'quantity': item['quantity'],
+                'total': item['product'].price * item['quantity']
+            })
+
+        receipt_info = {
+            'items': receipt_items,
+            'subtotal': self.subtotal,
+            'discount': self.discount_applied,
+            'points_redeemed': self.points_redeemed,
+            'remaining_points': remaining_points,
+            'gst': gst_total,
+            'total': grand_total,
+            'payment_method': payment_method,
+            'customer': self.customer.get_name() if self.customer else "Walk-in Customer",
+            'employee': self.employee.name,
+            'date': date.today().strftime("%Y-%m-%d"),
+            'time': datetime.now().strftime("%H:%M:%S")
+        }
+
+        receipt_text = self.generate_receipt_text(receipt_info)
+
+        Messagebox.show_info(
+            receipt_text,
+            "🎉 Sale Completed!",
+            parent=self
+        )
+
+        # Clear cart
+        if hasattr(self.parent, 'complete_sale'):
+            self.parent.complete_sale()
+
+        self.destroy()
+
+
+    def generate_receipt_text(self, r):
+        """Generate updated receipt with GST + loyalty points."""
+        
+        receipt = "═══════════════════════════════\n"
+        receipt += "           FIT NZ STORE\n"
+        receipt += "      Fitness Equipment & Nutrition\n"
+        receipt += "═══════════════════════════════\n\n"
+
+        receipt += f"Date: {r['date']} {r['time']}\n"
+        receipt += f"Customer: {r['customer']}\n"
+        receipt += f"Staff: {r['employee']}\n"
+        receipt += "───────────────────────────────\n"
+        receipt += "ITEMS:\n"
+
+        for item in r['items']:
+            receipt += f"{item['name']:<20} ${item['price']:>6.2f} × {item['quantity']}\n"
+
+        receipt += "───────────────────────────────\n"
+        receipt += f"Subtotal:              ${r['subtotal']:>7.2f}\n"
+
+        if r['discount'] > 0:
+            receipt += f"Discount:              -${r['discount']:>7.2f}\n"
+
+        if r['points_redeemed'] > 0:
+            receipt += f"Points Redeemed:        {r['points_redeemed']}\n"
+            receipt += f"Remaining Points:       {r['remaining_points']}\n"
+
+        receipt += f"GST (15%):             ${r['gst']:>7.2f}\n"
+        receipt += f"TOTAL:                 ${r['total']:>7.2f}\n"
+
+        receipt += "───────────────────────────────\n"
+        receipt += f"Payment: {r['payment_method']}\n"
+        receipt += "═══════════════════════════════\n"
+        receipt += "     THANK YOU FOR SHOPPING!\n"
+        receipt += "        HAVE A GREAT DAY!\n"
+        receipt += "═══════════════════════════════"
+
+        return receipt
+
+    def on_close(self):
+        """Handle window close"""
+        self.destroy()
+
+# helper to add product (auto-added by fixer)
+def _auto_add_product_helper(name, sku, price, stock, description=''):
+    pid = 'P' + str(int(datetime.now().timestamp()) % 100000)
+    return db.add_product(pid, sku, name, description, price, stock)
+
+
+class AddProductPage(bs.Toplevel):
+    def __init__(self, parent, logged_in_user):
+        super().__init__(parent)
+        self.parent = parent
+        self.logged_in_user = logged_in_user
+
+        self.title("➕ Add New Product - Fit NZ")
+        self.geometry("420x380")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        # Use ONLY grid inside this frame
+        container = ttk.Frame(self, padding=25)
+        container.grid(row=0, column=0, sticky="nsew")
+
+        ttk.Label(container, text="➕ Add Product", font=("Segoe UI", 18, "bold"),
+                  bootstyle="primary").grid(row=0, column=0, columnspan=2, pady=(0, 20))
+
+        labels = ["Product ID:", "Product Name:", "Price:", "Stock:"]
+        self.entries = {}
+
+        for i, label in enumerate(labels):
+            ttk.Label(container, text=label, font=("Segoe UI", 10, "bold")).grid(
+                row=i + 1, column=0, sticky="w", pady=10
+            )
+            entry = ttk.Entry(container, font=("Segoe UI", 10), width=25)
+            entry.grid(row=i + 1, column=1, sticky="ew", padx=(10, 0), ipady=5)
+            self.entries[label] = entry
+
+        container.grid_columnconfigure(1, weight=1)
+
+        # Buttons
+        btn_frame = ttk.Frame(container)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=(25, 0), sticky="ew")
+        btn_frame.grid_columnconfigure((0, 1), weight=1)
+
+        ttk.Button(btn_frame, text="💾 Save Product", bootstyle="success",
+                   command=self.save_product).grid(row=0, column=0, padx=5, ipady=8, sticky="ew")
+
+        ttk.Button(btn_frame, text="Cancel", bootstyle="secondary-outline",
+                   command=self.destroy).grid(row=0, column=1, padx=5, ipady=8, sticky="ew")
+
+    def save_product(self):
+        pid = self.entries["Product ID:"].get()
+        name = self.entries["Product Name:"].get()
+        price = self.entries["Price:"].get()
+        stock = self.entries["Stock:"].get()
+
+        if not all([pid, name, price, stock]):
+            Messagebox.show_error("Please fill all fields.", "Missing Data", parent=self)
+            return
+
+        try:
+            price = float(price)
+            stock = int(stock)
+        except:
+            Messagebox.show_error("Price must be a number and stock must be integer.", "Invalid Input", parent=self)
+            return
+
+        new_product = db.add_product(pid, name, price, stock)
+
+        if new_product:
+            Messagebox.show_info("Product added successfully.", "Success", parent=self)
+            self.parent.load_products()
+            self.destroy()
+        else:
+            Messagebox.show_error("Failed to add product. Product ID may already exist.", "Error", parent=self)
+
+
+
+class EditProductPage(bs.Toplevel):
+    """Window to edit an existing product"""
+
+    def __init__(self, parent, product_id):
+        super().__init__(parent)
+
+        self.parent = parent
+        self.product_id = product_id
+        self.title("✏️ Edit Product - Fit NZ")
+        self.geometry("450x420")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        # Fetch product
+        self.product = db.get_product_by_id(product_id)
+        if not self.product:
+            Messagebox.show_error("Product not found!", "Error", parent=self)
+            self.destroy()
+            return
+
+        # OUTER FRAME (pack)
+        outer = ttk.Frame(self, padding=25)
+        outer.pack(expand=True, fill="both")
+
+        ttk.Label(
+            outer,
+            text="✏️ Edit Product",
+            font=("Segoe UI", 18, "bold"),
+            bootstyle="primary"
+        ).pack(pady=(0, 20))
+
+        # INNER FRAME (grid)
+        form = ttk.Frame(outer)
+        form.pack(fill="both", expand=True)
+
+        # --- PRODUCT NAME ---
+        ttk.Label(form, text="Product Name:", font=("Segoe UI", 10, "bold")).grid(
+            row=0, column=0, sticky="w", padx=(0, 10), pady=10)
+        self.name_entry = ttk.Entry(form, font=("Segoe UI", 10), width=25)
+        self.name_entry.grid(row=0, column=1, sticky="ew", pady=10, ipady=6)
+        self.name_entry.insert(0, self.product.name)
+
+        # --- PRICE ---
+        ttk.Label(form, text="Price:", font=("Segoe UI", 10, "bold")).grid(
+            row=1, column=0, sticky="w", padx=(0, 10), pady=10)
+        self.price_entry = ttk.Entry(form, font=("Segoe UI", 10), width=25)
+        self.price_entry.grid(row=1, column=1, sticky="ew", pady=10, ipady=6)
+        self.price_entry.insert(0, str(self.product.price))
+
+        # --- STOCK ---
+        ttk.Label(form, text="Stock:", font=("Segoe UI", 10, "bold")).grid(
+            row=2, column=0, sticky="w", padx=(0, 10), pady=10)
+        self.stock_entry = ttk.Entry(form, font=("Segoe UI", 10), width=25)
+        self.stock_entry.grid(row=2, column=1, sticky="ew", pady=10, ipady=6)
+        self.stock_entry.insert(0, str(self.product.stock))
+
+        form.grid_columnconfigure(1, weight=1)
+
+        # BUTTON FRAME (pack)
+        btn_frame = ttk.Frame(outer)
+        btn_frame.pack(pady=(25, 0))
+
+        ttk.Button(
+            btn_frame,
+            text="💾 Save Changes",
+            bootstyle="success",
+            command=self.save_changes,
+            width=18
+        ).grid(row=0, column=0, padx=5, ipady=8)
+
+        ttk.Button(
+            btn_frame,
+            text="Cancel",
+            bootstyle="secondary-outline",
+            command=self.destroy,
+            width=18
+        ).grid(row=0, column=1, padx=5, ipady=8)
+
+    def save_changes(self):
+        """Save edited product information"""
+        name = self.name_entry.get().strip()
+        price = self.price_entry.get().strip()
+        stock = self.stock_entry.get().strip()
+
+        if not name or not price or not stock:
+            Messagebox.show_error("All fields are required.", "Missing Data", parent=self)
+            return
+
+        try:
+            price = float(price)
+            stock = int(stock)
+        except:
+            Messagebox.show_error("Enter valid numeric values for price and stock.", "Invalid Input", parent=self)
+            return
+
+        updated = db.update_product(self.product_id, name, price, stock)
+
+        if updated:
+            Messagebox.show_info("Product updated successfully.", "Success", parent=self)
+            self.parent.load_products()
+            self.destroy()
+        else:
+            Messagebox.show_error("Failed to update product.", "Error", parent=self)
+
+
+class CustomerOrderHistoryPage(bs.Toplevel):
+    """
+    Shows order history for logged-in customers
+    """
+    def __init__(self, parent, customer_obj):
+        super().__init__(parent)
+
+        self.parent = parent
+        self.customer = customer_obj
+
+        self.title("📦 Your Orders - Fit NZ")
+        self.geometry("850x550")
+        self.resizable(True, True)
+        self.transient(parent)
+
+        main = ttk.Frame(self, padding=20)
+        main.pack(expand=True, fill="both")
+        main.grid_rowconfigure(1, weight=1)
+        main.grid_columnconfigure(0, weight=1)
+
+        ttk.Label(
+            main,
+            text="📦 Order History",
+            font=("Segoe UI", 20, "bold"),
+            bootstyle="primary"
+        ).grid(row=0, column=0, sticky="w")
+
+        # Orders Table -------------------------------------------------------
+        table_frame = ttk.Labelframe(
+            main, text="Your Orders", padding=10, bootstyle="info"
+        )
+        table_frame.grid(row=1, column=0, sticky="nsew")
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+
+        columns = ("Order ID", "Date", "Total", "GST", "Delivery")
+        self.order_tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            bootstyle="info"
+        )
+
+        for col in columns:
+            self.order_tree.heading(col, text=col)
+            self.order_tree.column(col, anchor="center", width=150)
+
+        self.order_tree.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=self.order_tree.yview
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.order_tree.configure(yscrollcommand=scrollbar.set)
+
+        # Load customer orders
+        self.load_orders()
+
+        # Bottom ------------------------------------------------------------
+        bottom = ttk.Frame(main)
+        bottom.grid(row=2, column=0, sticky="ew", pady=(20, 0))
+
+        ttk.Button(
+            bottom,
+            text="🔍 View Order Items",
+            bootstyle="primary",
+            command=self.view_order_items
+        ).pack(side="left")
+
+        ttk.Button(
+            bottom,
+            text="← Back",
+            bootstyle="secondary-outline",
+            command=self.destroy
+        ).pack(side="right")
+
+    # ----------------------------------------------------------------------
+    def load_orders(self):
+        for row in self.order_tree.get_children():
+            self.order_tree.delete(row)
+
+        orders = db.get_orders_by_customer(self.customer._customer_id)
+
+        if not orders:
+            return
+
+        for o in orders:
+            self.order_tree.insert(
+                "",
+                "end",
+                iid=str(o["id"]),
+                values=(
+                    o["id"],
+                    o["datetime"],
+                    f"${o['total']:.2f}",
+                    f"${o['gst']:.2f}",
+                    o["delivery_date"]
+                )
+            )
+
+    # ----------------------------------------------------------------------
+    def view_order_items(self):
+        selected = self.order_tree.focus()
+        if not selected:
+            Messagebox.show_warning("Select an order first.", "No Selection", parent=self)
+            return
+
+        details = db.get_sale_details(selected)
+
+        if not details:
+            Messagebox.show_error("No order items found.", "Error", parent=self)
+            return
+
+        text = f"🧾 Order ID: {selected}\n\n"
+
+        for d in details:
+            text += f"{d['name']}  x{d['qty']}  —  ${d['line_total']:.2f}\n"
+
+        Messagebox.show_info(text, "Order Items", parent=self)
 
 
 

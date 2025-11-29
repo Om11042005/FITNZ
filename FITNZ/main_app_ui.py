@@ -77,9 +77,144 @@ class MainAppPage(ttk.Frame):
             width=15
         )
         logout_btn.grid(row=0, column=1, sticky="e")
+      
+# ===============================================
+# Code Owner: Rajina (US: Product Browsing/Details)
+# # ===============================================
 
 
-# Rajina PArt
+    def create_customer_interface(self):
+        """Create customer-specific interface"""
+        # Products frame
+        products_frame = ttk.Labelframe(
+            self.main_frame,
+            text="🛍️ Available Products",
+            padding=15,
+            bootstyle="info"
+        )
+        products_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 15))
+        products_frame.grid_rowconfigure(1, weight=1)
+        products_frame.grid_columnconfigure(0, weight=1)
+        
+        # Products treeview
+        tree_frame = ttk.Frame(products_frame)
+        tree_frame.grid(row=1, column=0, sticky="nsew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        
+        columns = ("ID", "Name", "Price", "Stock")
+        self.products_tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show="headings",
+            bootstyle="primary",
+            selectmode="browse"
+        )
+        
+        # Configure columns
+        self.products_tree.heading("ID", text="Product ID")
+        self.products_tree.column("ID", width=80, anchor="center")
+        self.products_tree.heading("Name", text="Product Name")
+        self.products_tree.column("Name", width=200, anchor="w")
+        self.products_tree.heading("Price", text="Price ($)")
+        self.products_tree.column("Price", width=100, anchor="e")
+        self.products_tree.heading("Stock", text="Stock")
+        self.products_tree.column("Stock", width=80, anchor="center")
+        
+        self.products_tree.grid(row=0, column=0, sticky="nsew")
+        
+        # Add double-click event to view product details
+        self.products_tree.bind('<Double-1>', lambda e: self.view_product_details())
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(
+            tree_frame,
+            orient="vertical",
+            command=self.products_tree.yview,
+            bootstyle="secondary-round"
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Load products
+        self.load_products()
+        
+        # Customer actions frame
+        actions_frame = ttk.Frame(products_frame)
+        actions_frame.grid(row=2, column=0, sticky="ew", pady=(15, 0))
+        
+        ttk.Button(
+            actions_frame,
+            text="🛒 Add to Cart",
+            command=self.add_to_cart,
+            bootstyle="success-outline",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            actions_frame,
+            text="👁️ View Details",
+            command=self.view_product_details,
+            bootstyle="primary-outline",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            actions_frame,
+            text="⭐ Membership",
+            command=self.manage_membership,
+            bootstyle="warning-outline",
+            width=15
+        ).pack(side="left")
+        
+        ttk.Button(
+            actions_frame,
+            text="📦 Order History",
+            command=self.open_order_history,
+            bootstyle="info-outline",
+            width=15
+        ).pack(side="left")
+
+        # Customer info frame
+        info_frame = ttk.Labelframe(
+            self.main_frame,
+            text="👤 Customer Information",
+            padding=15,
+            bootstyle="success"
+        )
+        info_frame.grid(row=0, column=1, sticky="nsew", padx=(15, 0), pady=(0, 15))
+        
+        # Display customer details
+        ttk.Label(
+            info_frame,
+            text=f"Name: {self.logged_in_user.get_name()}",
+            font=("Segoe UI", 11)
+        ).pack(anchor="w", pady=5)
+        
+        ttk.Label(
+            info_frame,
+            text=f"Membership: {getattr(self.logged_in_user, 'membership_level', 'Standard')}",
+            font=("Segoe UI", 11)
+        ).pack(anchor="w", pady=5)
+        
+        ttk.Label(
+            info_frame,
+            text=f"Loyalty Points: {getattr(self.logged_in_user, 'loyalty_points', 0)}",
+            font=("Segoe UI", 11)
+        ).pack(anchor="w", pady=5)
+        
+        # Configure column weights
+        self.main_frame.grid_columnconfigure(0, weight=3)
+        self.main_frame.grid_columnconfigure(1, weight=1)
+
+    def open_order_history(self):
+        if not self.logged_in_user:
+            Messagebox.show_error("No customer logged in.", "Error", parent=self)
+            return
+
+        win = CustomerOrderHistoryPage(self, self.logged_in_user)
+        win.grab_set()
+
 
 
 

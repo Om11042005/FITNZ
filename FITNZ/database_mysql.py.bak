@@ -1,0 +1,259 @@
+"""
+Compatibility DB layer that maps SQLite rows to the original model objects.
+Designed to be drop-in compatible with the original UI which expects Product, Customer, Employee objects.
+"""
+import sqlite3, os
+from types import SimpleNamespace
+from datetime import datetime
+BASE = os.path.dirname(__file__)
+DB_PATH = os.path.join(BASE, "fitnz.sqlite3")
+
+# Import model classes from package
+from .models.product import Product
+from .models.customer import Customer, BronzeMember, SilverMember, GoldMember, StudentMember
+from .models.employee import Employee
+from .models.user import User
+
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def setup_database():
+    conn = get_conn(); cur = conn.cursor()
+    cur.executescript("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        username TEXT UNIQUE,
+        password TEXT,
+        role TEXT,
+        name TEXT,
+        contact TEXT,
+        address TEXT,
+        membership_level TEXT DEFAULT 'Standard',
+        loyalty_points INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id TEXT UNIQUE,
+        sku TEXT,
+        name TEXT,
+        description TEXT,
+        price REAL,
+        stock INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id TEXT,
+        name TEXT,
+        email TEXT,
+        phone TEXT,
+        tier TEXT DEFAULT 'Bronze',
+        loyalty_points INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS sales (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        datetime TEXT,
+        user_id INTEGER,
+        customer_id INTEGER,
+        total REAL,
+        gst REAL,
+        delivery_date TEXT
+    );
+    CREATE TABLE IF NOT EXISTS sale_lines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id INTEGER,
+        product_id TEXT,
+        qty INTEGER,
+        unit_price REAL,
+        line_total REAL
+    );
+    """)
+    # seed default users if none
+    cur.execute("SELECT COUNT(*) FROM users")
+    if cur.fetchone()[0] == 0:
+        defaults = [
+            ('E001','dev','dev123','Developer','Om Patel','dev@fit.nz','AIS Campus','Standard',0),
+            ('E002','manager','man123','Manager','Jane Doe','jane@fit.nz','AIS Campus','Standard',0),
+            ('E003','emp','emp123','Employee','John Smith','john@fit.nz','AIS Campus','Standard',0),
+            ('C101','alice','alice123','Customer','Alice','alice@example.com','123 Queen St, Auckland','Gold',500)
+        ]
+        for u in defaults:
+            cur.execute("""INSERT INTO users (user_id, username, password, role, name, contact, address, membership_level, loyalty_points)
+                           VALUES (?,?,?,?,?,?,?,?,?)""", u)
+    # seed products
+    cur.execute("SELECT COUNT(*) FROM products")
+    if cur.fetchone()[0] == 0:
+        products = [
+            ('P001','BND001','Resistance Band - Light','Light resistance band, 1m',12.0,50),
+            ('P002','MAT001','Yoga Mat - Eco','Eco-friendly yoga mat',30.0,20),
+            ('P003','WGT001','Dumbbell 5kg','Cast iron dumbbell 5kg',40.0,10),
+            ('P004','PRT001','Protein Powder 1kg','Whey protein 1kg',80.0,25)
+        ]
+        for p in products:
+            cur.execute("INSERT INTO products (product_id, sku, name, description, price, stock) VALUES (?,?,?,?,?,?)", p)
+    conn.commit(); conn.close()
+
+def row_to_product(row):
+    if row is None: return None
+    # Product constructor: Product(product_id: str, name: str, price: float, stock: int)
+    return Product(str(row['product_id']), row['name'], float(row['price']), int(row['stock']))
+
+def row_to_customer(row):
+    if row is None:
+        return None
+
+    # Safe extraction because sqlite3.Row has no .get()
+    customer_id = (
+        row['user_id'] if 'user_id' in row.keys()
+        else row['customer_id'] if 'customer_id' in row.keys()
+        else ''
+    )
+
+    name = row['name'] if 'name' in row.keys() else ''
+    contact = (
+        row['contact'] if 'contact' in row.keys()
+        else row['email'] if 'email' in row.keys()
+        else ''
+    )
+
+    username = row['username'] if 'username' in row.keys() else ''
+    password = row['password'] if 'password' in row.keys() else ''
+
+    cust = Customer(customer_id, name, contact, username, password)
+
+    # Optional fields
+    cust.loyalty_points = (
+        int(row['loyalty_points'])
+        if 'loyalty_points' in row.keys()
+        else 0
+    )
+
+    cust.membership_level = (
+        row['membership_level'] if 'membership_level' in row.keys()
+        else row['tier'] if 'tier' in row.keys()
+        else 'Standard'
+    )
+
+    cust.address = (
+        row['address'] if 'address' in row.keys()
+        else ''
+    )
+
+    return cust
+
+def row_to_employee(row):
+    if row is None:
+        return None
+
+    # Safe dictionary-style access
+    employee_id = row['user_id'] if 'user_id' in row.keys() else ''
+    name        = row['name']    if 'name'    in row.keys() else ''
+    role        = row['role']    if 'role'    in row.keys() else ''
+    username    = row['username'] if 'username' in row.keys() else ''
+    password    = row['password'] if 'password' in row.keys() else ''
+
+    emp = Employee(employee_id, name, role, username, password)
+    return emp
+
+def authenticate_user(username, password, role=None):
+    conn = get_conn(); cur = conn.cursor()
+    if role:
+        cur.execute("SELECT * FROM users WHERE username=? AND password=? AND role=?", (username, password, role))
+    else:
+        cur.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    r = cur.fetchone(); conn.close()
+    if not r: return None
+    if r['role'] and r['role'].lower() == 'customer':
+        return row_to_customer(r)
+    else:
+        return row_to_employee(r)
+
+def add_user(name, contact, username, password, role, address):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM users"); cnt = cur.fetchone()[0] + 1
+        user_id = f"U{cnt:03d}"
+        cur.execute("INSERT INTO users (user_id, username, password, role, name, contact, address) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                    (user_id, username, password, role, name, contact, address))
+        conn.commit(); return True
+    except Exception as e:
+        # print('add_user error', e)
+        return False
+    finally:
+        conn.close()
+
+def get_all_products():
+    conn = get_conn(); cur = conn.cursor()
+    rows = cur.execute("SELECT * FROM products").fetchall(); conn.close()
+    return [row_to_product(r) for r in rows]
+
+def get_product_by_id(pid):
+    conn = get_conn(); cur = conn.cursor()
+    r = cur.execute("SELECT * FROM products WHERE product_id=? OR id=?", (pid, pid)).fetchone(); conn.close()
+    return row_to_product(r)
+
+def get_all_users():
+    conn = get_conn(); cur = conn.cursor()
+    rows = cur.execute("SELECT * FROM users").fetchall(); conn.close()
+    return [ (row_to_customer(r) if r['role'] and r['role'].lower()=='customer' else row_to_employee(r)) for r in rows ]
+
+def get_user_by_id(uid):
+    conn = get_conn(); cur = conn.cursor()
+    r = cur.execute("SELECT * FROM users WHERE id=? OR user_id=? OR username=?", (uid, uid, uid)).fetchone(); conn.close()
+    if not r: return None
+    if r['role'] and r['role'].lower()=='customer': return row_to_customer(r)
+    return row_to_employee(r)
+
+def delete_user_by_id(uid):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM users WHERE id=? OR user_id=? OR username=?", (uid, uid, uid))
+        conn.commit(); conn.close(); return True
+    except:
+        return False
+
+def process_sale(customer_obj, cart, points_redeemed, student_discount_applied, delivery_date):
+    """
+    cart: list of dicts or objects with product_id, qty (or quantity), price (or unit_price)
+    """
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        now = datetime.now().isoformat(timespec='seconds')
+        total = 0.0; gst_total = 0.0
+        for it in cart:
+            pid = getattr(it, 'product_id', None) or (it.get('product_id') if isinstance(it, dict) else None)
+            qty = getattr(it, 'qty', None) or getattr(it, 'quantity', None) or (it.get('qty') if isinstance(it, dict) else 1)
+            price = getattr(it, 'price', None) or getattr(it, 'unit_price', None) or (it.get('price') if isinstance(it, dict) else 0)
+            if pid is None: continue
+            line_total = float(price) * int(qty)
+            total += line_total
+        gst_total = total * 0.15
+        cur.execute("INSERT INTO sales (datetime, user_id, customer_id, total, gst, delivery_date) VALUES (?,?,?,?,?,?)",
+                    (now, None, getattr(customer_obj, '_customer_id', None) or None, total+gst_total, gst_total, str(delivery_date)))
+        sale_id = cur.lastrowid
+        for it in cart:
+            pid = getattr(it, 'product_id', None) or (it.get('product_id') if isinstance(it, dict) else None)
+            qty = getattr(it, 'qty', None) or getattr(it, 'quantity', None) or (it.get('qty') if isinstance(it, dict) else 1)
+            price = getattr(it, 'price', None) or getattr(it, 'unit_price', None) or (it.get('price') if isinstance(it, dict) else 0)
+            line_total = float(price) * int(qty) * 1.15
+            cur.execute("INSERT INTO sale_lines (sale_id, product_id, qty, unit_price, line_total) VALUES (?,?,?,?,?)",
+                        (sale_id, pid, qty, price, line_total))
+            # reduce stock by product_id
+            cur.execute("UPDATE products SET stock = stock - ? WHERE product_id = ?", (qty, pid))
+        conn.commit(); conn.close(); return True
+    except Exception as e:
+        # print("process_sale error", e)
+        return False
+
+def update_customer_membership(customer_id, new_tier):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("UPDATE users SET membership_level=? WHERE user_id=? OR username=? OR id=?", (new_tier, customer_id, customer_id, customer_id))
+        conn.commit(); conn.close(); return True
+    except:
+        return False
+
+def upgrade_to_student_membership(customer_id):
+    return update_customer_membership(customer_id, "Student")

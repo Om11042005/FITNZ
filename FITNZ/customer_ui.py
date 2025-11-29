@@ -252,3 +252,218 @@ class CartPage(bs.Toplevel):
                                 values=(name, price_display, quantity, total_display))
         
         self.update_summary()
+
+
+
+# ===============================================
+# Code Owner: Rajina (US: Calculate/Apply Discounts - Membership/Student/Points)
+# ===============================================
+
+
+    def update_summary(self):
+        """Recalculate subtotal, discounts and total, update labels."""
+        self.subtotal = sum(float(getattr(item, "price", 0.0)) for item in self.cart)
+
+        # Calculate discount rate
+        if self.student_discount_applied:
+            discount_rate = 0.20
+        else:
+            discount_rate = getattr(self.customer, "get_discount_rate", lambda: 0.0)()
+        
+        discount_amount = self.subtotal * discount_rate
+
+        # Points conversion: 1 point = $0.10
+        points_discount = float(self.points_to_redeem) * 0.10
+        total_discount = discount_amount + points_discount
+
+        # Prevent negative totals
+        self.total = max(0.0, self.subtotal - total_discount)
+
+        self.subtotal_label.config(text=f"${self.subtotal:.2f}")
+        self.discount_label.config(text=f"-${total_discount:.2f}")
+        self.total_label.config(text=f"${self.total:.2f}")
+
+    def remove_item(self):
+        """Remove selected item from cart and refresh."""
+        selected = self.cart_tree.selection()
+        if not selected:
+            Messagebox.show_warning("Please select an item to remove.", "No Selection", parent=self)
+            return
+        
+        for iid in selected:
+            # Find and remove one instance of the product
+            product_id = iid
+            for i, item in enumerate(self.cart):
+                if str(getattr(item, "product_id", id(item))) == str(product_id):
+                    self.cart.pop(i)
+                    break
+        
+        # Update parent's cart
+        if hasattr(self.parent, "cart"):
+            self.parent.cart = list(self.cart)
+        
+        self.populate_cart()
+
+    def update_quantities(self):
+        """Open quantity update dialog"""
+        selected = self.cart_tree.selection()
+        if not selected:
+            Messagebox.show_warning("Please select an item to update quantity.", "No Selection", parent=self)
+            return
+        
+        QuantityUpdatePage(self, self.cart, selected[0])
+
+    def apply_points(self):
+        """Apply loyalty points entered by the user."""
+        try:
+            points = int(self.points_entry.get())
+        except ValueError:
+            Messagebox.show_error("Please enter a valid number of points.", "Invalid Input", parent=self)
+            return
+
+        max_points = int(getattr(self.customer, "loyalty_points", 0))
+        if points < 0 or points > max_points:
+            Messagebox.show_error(f"Please enter a number between 0 and {max_points}.", "Invalid Points", parent=self)
+            return
+
+        self.points_to_redeem = points
+        self.update_summary()
+        Messagebox.show_info(f"{points} points applied successfully.", "Points Redeemed", parent=self)
+
+    def apply_student_discount(self):
+        """Apply student discount."""
+        if self.student_discount_applied:
+            Messagebox.show_info("Student discount is already applied.", "Info", parent=self)
+            return
+            
+        ok = Messagebox.yesno(
+            "Apply 20% Student Discount?\n\nThis will override your current membership discount for this purchase.",
+            "Confirm Student Discount",
+            parent=self,
+        )
+        if ok:
+            self.student_discount_applied = True
+            self.update_summary()
+            Messagebox.show_info("20% student discount applied!", "Discount Applied", parent=self)
+
+    def open_checkout(self):
+        """Open checkout window."""
+        if not self.cart:
+            Messagebox.show_error("Your cart is empty.", "Error", parent=self)
+            return
+
+        # Validate stock
+        for item in self.cart:
+            product_id = getattr(item, "product_id", "")
+            product = db.get_product_by_id(product_id)
+            if product and product.stock <= 0:
+                Messagebox.show_error(
+                    f"Sorry, {product.name} is out of stock. Please remove it from your cart.",
+                    "Out of Stock",
+                    parent=self
+                )
+                return
+
+        # 🔥 FIX: employees must calculate total manually  
+        total_amount = sum(getattr(item, "price", 0) for item in self.cart)
+
+        self.withdraw()
+
+        checkout_win = CheckoutPage(
+            parent=self,
+            cart=self.cart,
+            customer=self.customer,
+            points_redeemed=self.points_to_redeem,
+            total=total_amount,
+            student_discount_applied=self.student_discount_applied
+        )
+
+        checkout_win.grab_set()
+
+
+class QuantityUpdatePage(bs.Toplevel):
+    """Dialog for updating item quantities"""
+    
+    def __init__(self, parent, cart, product_id):
+        super().__init__(parent)
+        self.parent = parent
+        self.cart = cart
+        self.product_id = product_id
+        
+        self.title("Update Quantity")
+        self.geometry("300x200")
+        self.resizable(False, False)
+        self.transient(parent)
+        
+        main_frame = ttk.Frame(self, padding=20)
+        main_frame.pack(expand=True, fill="both")
+        
+        # Count current quantity
+        current_qty = sum(1 for item in cart if str(getattr(item, "product_id", id(item))) == str(product_id))
+        
+        ttk.Label(main_frame, text="Update Quantity:", font=("Segoe UI", 12, "bold")).pack(pady=(0, 15))
+        
+        qty_frame = ttk.Frame(main_frame)
+        qty_frame.pack(pady=10)
+        
+        ttk.Label(qty_frame, text="Quantity:").pack(side="left", padx=(0, 10))
+        
+        self.qty_var = tk.StringVar(value=str(current_qty))
+        qty_spinbox = ttk.Spinbox(
+            qty_frame, 
+            from_=1, 
+            to=100, 
+            textvariable=self.qty_var,
+            width=10,
+            font=("Segoe UI", 11)
+        )
+        qty_spinbox.pack(side="left")
+        
+        # Buttons - MAKE VISIBLE
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(side="bottom", fill="x", pady=(20, 0))
+        
+        ttk.Button(
+            btn_frame,
+            text="Update",
+            command=self.update_quantity,
+            bootstyle="success",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            btn_frame,
+            text="Cancel",
+            command=self.destroy,
+            bootstyle="secondary",
+            width=15
+        ).pack(side="right")
+
+    def update_quantity(self):
+        try:
+            new_qty = int(self.qty_var.get())
+            if new_qty < 1:
+                Messagebox.show_error("Quantity must be at least 1.", "Invalid Quantity", parent=self)
+                return
+        except ValueError:
+            Messagebox.show_error("Please enter a valid number.", "Invalid Input", parent=self)
+            return
+        
+        # Update cart
+        product_items = [item for item in self.cart if str(getattr(item, "product_id", id(item))) == str(self.product_id)]
+        
+        # Remove all instances
+        for item in product_items:
+            self.cart.remove(item)
+        
+        # Add new quantity
+        if product_items:
+            sample_item = product_items[0]
+            for _ in range(new_qty):
+                self.cart.append(sample_item)
+        
+        # Refresh parent
+        self.parent.populate_cart()
+        self.destroy()
+
+

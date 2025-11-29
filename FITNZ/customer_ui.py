@@ -467,3 +467,386 @@ class QuantityUpdatePage(bs.Toplevel):
         self.destroy()
 
 
+
+# ===============================================
+# Code Owner: Sahil (US: Complete Checkout Process/Simulated Payment)
+# ===============================================
+
+class CheckoutPage(bs.Toplevel):
+    """Full working checkout page with card validation (NO placeholders)."""
+
+    def __init__(self, parent, cart, customer, points_redeemed, total, student_discount_applied):
+        super().__init__(parent)
+
+        self.cart_page = parent
+        self.parent_app = getattr(parent, "parent", None)
+
+        self.cart = list(cart)
+        self.customer = customer
+        self.points_redeemed = int(points_redeemed or 0)
+        self.total = float(total or 0.0)
+        self.student_discount_applied = bool(student_discount_applied)
+
+        # Window setup
+        self.title("💳 Checkout - Fit NZ")
+        self.geometry("500x650")
+        self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.transient(parent)
+
+        # Build UI
+        self.build_ui()
+
+    # ---------------------------------------------------------------------
+    # BUILD UI
+    # ---------------------------------------------------------------------
+    def build_ui(self):
+        main_container = ttk.Frame(self, padding=25)
+        main_container.pack(expand=True, fill="both")
+
+        # Header
+        ttk.Label(
+            main_container,
+            text="💳 Checkout",
+            font=("Segoe UI", 18, "bold"),
+            bootstyle="primary"
+        ).pack(anchor="w", pady=(0, 15))
+
+        # --------------------- ORDER SUMMARY -----------------------------
+        summary_frame = ttk.Labelframe(
+            main_container,
+            text="Order Summary",
+            padding=15,
+            bootstyle="info"
+        )
+        summary_frame.pack(fill="x", pady=(0, 20))
+
+        items_display = ""
+        for item in self.cart:
+            name = getattr(item, "name", "Unknown")
+            price = getattr(item, "price", 0.0)
+            items_display += f"• {name}  -  ${price:.2f}\n"
+
+        ttk.Label(
+            summary_frame,
+            text=items_display,
+            font=("Segoe UI", 10),
+            justify="left"
+        ).pack(anchor="w")
+
+        ttk.Separator(summary_frame).pack(fill="x", pady=10)
+
+        ttk.Label(
+            summary_frame,
+            text=f"Total: ${self.total:.2f}",
+            font=("Segoe UI", 14, "bold"),
+            bootstyle="primary"
+        ).pack(anchor="e")
+
+        # --------------------- SHIPPING INFO -----------------------------
+        shipping_frame = ttk.Labelframe(
+            main_container,
+            text="Shipping Information",
+            padding=15,
+            bootstyle="success"
+        )
+        shipping_frame.pack(fill="x", pady=(0, 20))
+
+        address = getattr(self.customer, "address", "No address provided")
+
+        ttk.Label(
+            shipping_frame,
+            text=f"Shipping to: {address}",
+            font=("Segoe UI", 10),
+            wraplength=400
+        ).pack(anchor="w", pady=5)
+
+        self.delivery_date = date.today() + timedelta(days=3)
+
+        ttk.Label(
+            shipping_frame,
+            text=f"Estimated delivery: {self.delivery_date.strftime('%A, %B %d, %Y')}",
+            font=("Segoe UI", 10, "bold"),
+            bootstyle="success"
+        ).pack(anchor="w", pady=5)
+
+        # --------------------- PAYMENT SECTION ---------------------------
+        payment_frame = ttk.Labelframe(
+            main_container,
+            text="Payment Details",
+            padding=15,
+            bootstyle="warning"
+        )
+        payment_frame.pack(fill="both", pady=(0, 20))
+        payment_frame.grid_columnconfigure(1, weight=1)
+
+        # CARD NUMBER FIELD (NO PLACEHOLDER)
+        ttk.Label(payment_frame, text="Card Number:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", pady=8)
+        self.card_entry = ttk.Entry(payment_frame, font=("Segoe UI", 11))
+        self.card_entry.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=8, ipady=6)
+
+        # Small info label
+        ttk.Label(
+            payment_frame,
+            text="💡 Enter card number (13–19 digits).",
+            font=("Segoe UI", 9),
+            bootstyle="secondary"
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 0))
+
+        # --------------------- BUTTONS ----------------------------------
+        btn_frame = ttk.Frame(main_container)
+        btn_frame.pack(fill="x", pady=(10, 0))
+
+        pay_btn = ttk.Button(
+            btn_frame,
+            text=f"💳 Pay ${self.total:.2f}",
+            bootstyle="success",
+            command=self.process_payment
+        )
+        pay_btn.pack(fill="x", ipady=10)
+
+        ttk.Button(
+            btn_frame,
+            text="Cancel",
+            bootstyle="secondary-outline",
+            command=self.on_close
+        ).pack(fill="x", ipady=8, pady=(10, 0))
+
+    # ---------------------------------------------------------------------
+    # VALIDATION
+    # ---------------------------------------------------------------------
+    def validate_card(self) -> bool:
+        card = (self.card_entry.get() or "").replace(" ", "").replace("-", "").strip()
+
+        if not card:
+            Messagebox.show_error("Please enter your card number.", "Missing Card", parent=self)
+            return False
+
+        if not card.isdigit():
+            Messagebox.show_error("Card number must contain only digits.", "Invalid Card", parent=self)
+            return False
+
+        if not (13 <= len(card) <= 19):
+            Messagebox.show_error("Card number must be 13–19 digits.", "Invalid Card", parent=self)
+            return False
+
+        return True
+
+    # ---------------------------------------------------------------------
+    # PROCESS PAYMENT
+    # ---------------------------------------------------------------------
+    def process_payment(self):
+        if not self.validate_card():
+            return
+
+        try:
+            success = db.process_sale(
+                self.customer,
+                self.cart,
+                self.points_redeemed,
+                self.student_discount_applied,
+                self.delivery_date
+            )
+ 
+            if success:
+                self.show_success()
+            else:
+                Messagebox.show_error("Failed to process sale.", "Error", parent=self)
+
+        except Exception as e:
+            Messagebox.show_error(f"Error: {e}", "Payment Error", parent=self)
+
+    # ---------------------------------------------------------------------
+    # SUCCESS MESSAGE
+    # ---------------------------------------------------------------------
+    def show_success(self):
+        order_id = f"ORD{date.today().strftime('%Y%m%d')}{random.randint(1000,9999)}"
+
+        msg = (
+            f"✅ Order Confirmed!\n\n"
+            f"Order ID: {order_id}\n"
+            f"Total Paid: ${self.total:.2f}\n"
+            f"Delivery: {self.delivery_date.strftime('%A, %B %d, %Y')}\n\n"
+            f"🎉 Thank you for shopping with Fit NZ!"
+        )
+
+        Messagebox.show_info(msg, "Order Successful", parent=self)
+
+        if self.parent_app and hasattr(self.parent_app, "clear_cart"):
+            self.parent_app.clear_cart()
+
+        try:
+            self.cart_page.destroy()
+        except:
+            pass
+
+        self.destroy()
+
+    def on_close(self):
+        try:
+            self.cart_page.deiconify()
+        except:
+            pass
+        self.destroy()
+
+class MembershipPage(bs.Toplevel):
+    """Manage membership upgrades"""
+    
+    def __init__(self, parent, customer):
+        super().__init__(parent)
+        self.parent = parent
+        self.customer = customer
+
+        self.title("⭐ Manage Membership - Fit NZ")
+        self.geometry("480x550")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        # Main container
+        frame = ttk.Frame(self, padding=25)
+        frame.pack(expand=True, fill="both")
+
+        # Header
+        ttk.Label(
+            frame, 
+            text="⭐ Upgrade Your Membership", 
+            font=("Segoe UI", 20, "bold"), 
+            bootstyle="primary"
+        ).pack(pady=(0, 10))
+        
+        ttk.Label(
+            frame, 
+            text="Unlock exclusive discounts and benefits", 
+            font=("Segoe UI", 9),
+            bootstyle="secondary"
+        ).pack(pady=(0, 25))
+
+        # Current membership info
+        current_level = getattr(self.customer, "membership_level", "None")
+        current_info_frame = ttk.Labelframe(
+            frame, 
+            text="Current Membership", 
+            padding=15,
+            bootstyle="info"
+        )
+        current_info_frame.pack(fill="x", pady=(0, 20))
+        
+        ttk.Label(
+            current_info_frame, 
+            text=f"Level: {current_level}", 
+            font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w")
+        
+        points = getattr(self.customer, "loyalty_points", 0)
+        ttk.Label(
+            current_info_frame, 
+            text=f"Loyalty Points: {points}", 
+            font=("Segoe UI", 10)
+        ).pack(anchor="w", pady=(5, 0))
+
+        # Membership upgrade section
+        upgrade_frame = ttk.Labelframe(
+            frame, 
+            text="Upgrade to Premium", 
+            padding=20,
+            bootstyle="success"
+        )
+        upgrade_frame.pack(fill="x", pady=(0, 20))
+        
+        ttk.Label(
+            upgrade_frame, 
+            text="Select membership level:", 
+            font=("Segoe UI", 10, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        levels = ["Bronze (5% discount)", "Silver (10% discount)", "Gold (15% discount)"]
+        self.level_var = tk.StringVar(value=levels[0])
+        self.level_combo = ttk.Combobox(
+            upgrade_frame, 
+            textvariable=self.level_var, 
+            values=levels, 
+            state="readonly",
+            font=("Segoe UI", 11)
+        )
+        self.level_combo.pack(fill="x", pady=(0, 15), ipady=7)
+
+        # Upgrade button - MAKE VISIBLE
+        upgrade_btn = ttk.Button(
+            upgrade_frame, 
+            text="⭐ Upgrade Membership", 
+            command=self.upgrade_membership, 
+            bootstyle="success",
+            width=25
+        )
+        upgrade_btn.pack(fill="x", ipady=8)
+
+        # Student discount section
+        student_frame = ttk.Labelframe(
+            frame, 
+            text="🎓 Student Discount", 
+            padding=20,
+            bootstyle="warning"
+        )
+        student_frame.pack(fill="x")
+        
+        ttk.Label(
+            student_frame, 
+            text="Are you a student? Get 20% off on all purchases!", 
+            font=("Segoe UI", 10),
+            wraplength=400,
+            justify="left"
+        ).pack(anchor="w", pady=(0, 10))
+        
+        student_btn_text = "✅ Already Applied" if current_level == "Student" else "🎓 Get Student Discount (20%)"
+        self.student_btn = ttk.Button(
+            student_frame, 
+            text=student_btn_text, 
+            command=self.upgrade_to_student, 
+            bootstyle="warning",
+            width=25
+        )
+        self.student_btn.pack(fill="x", ipady=8)
+        if current_level == "Student":
+            self.student_btn.config(state="disabled", bootstyle="secondary")
+
+    def upgrade_membership(self):
+        selection = self.level_var.get().strip()
+        if not selection:
+            Messagebox.show_error("Please select a membership level.", "Error", parent=self)
+            return
+        new_level = selection.split(" ")[0]
+
+        try:
+            ok = db.update_customer_membership(getattr(self.customer, "_customer_id", getattr(self.customer, "customer_id", None)), new_level)
+        except Exception as e:
+            ok = False
+            print("Error updating membership in DB:", e)
+
+        if ok:
+            Messagebox.show_info(f"Membership upgraded to {new_level}!", "Success", parent=self)
+            if hasattr(self.parent, "update_customer_info"):
+                try:
+                    self.parent.update_customer_info()
+                except Exception:
+                    pass
+            self.destroy()
+        else:
+            Messagebox.show_error("Failed to upgrade membership.", "Error", parent=self)
+
+    def upgrade_to_student(self):
+        try:
+            ok = db.upgrade_to_student_membership(getattr(self.customer, "_customer_id", getattr(self.customer, "customer_id", None)))
+        except Exception as e:
+            ok = False
+            print("Error upgrading to student membership:", e)
+
+        if ok:
+            Messagebox.show_info("Student membership (20% discount) applied!", "Success", parent=self)
+            if hasattr(self.parent, "update_customer_info"):
+                try:
+                    self.parent.update_customer_info()
+                except Exception:
+                    pass
+            self.destroy()
+        else:
+            Messagebox.show_error("Failed to apply student membership.", "Error", parent=self)

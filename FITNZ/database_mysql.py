@@ -79,11 +79,78 @@ def add_user(name, contact, username, password, role, address):
         return None
     finally:
         conn.close()
+# ===============================================
+# Code Owner: Sahil (US: Sale/Checkout Processing)
+# Code Owner: Rajina (US: Discount Management - Membership tiers)
+# ===============================================
 
+def process_sale(customer_obj, cart, points_redeemed, student_discount_applied, delivery_date):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
 
-# Sahil Part
+        now = datetime.now().isoformat(timespec='seconds')
+        total = 0.0
 
+        # Calculate totals
+        for it in cart:
+            pid = getattr(it, 'product_id', None)
+            qty = getattr(it, 'qty', 1)
+            price = getattr(it, 'price', 0)
+            total += float(price) * int(qty)
 
+        gst_total = round(total * 0.15, 2)
+        grand_total = round(total + gst_total, 2)
+
+        # Insert sale
+        cur.execute(
+            "INSERT INTO sales (datetime, user_id, customer_id, total, gst, delivery_date) VALUES (?,?,?,?,?,?)",
+            (now, None, getattr(customer_obj, '_customer_id', None), grand_total, gst_total, str(delivery_date))
+        )
+        sale_id = cur.lastrowid
+
+        # Insert sale lines
+        for it in cart:
+            pid = getattr(it, 'product_id', None)
+            qty = getattr(it, 'qty', 1)
+            price = getattr(it, 'price', 0)
+            line_total = round((price * qty) * 1.15, 2)
+
+            cur.execute(
+                "INSERT INTO sale_lines (sale_id, product_id, qty, unit_price, line_total) VALUES (?,?,?,?,?)",
+                (sale_id, pid, qty, price, line_total)
+            )
+
+            cur.execute(
+                "UPDATE products SET stock = stock - ? WHERE product_id = ?",
+                (qty, pid)
+            )
+
+        # ----- LOYALTY POINTS -----
+        remaining_points = None
+        if customer_obj and points_redeemed > 0:
+            old_pts = getattr(customer_obj, 'loyalty_points', 0)
+            remaining_points = max(0, old_pts - points_redeemed)
+
+            cur.execute(
+                "UPDATE customers SET loyalty_points = ? WHERE customer_id = ?",
+                (remaining_points, customer_obj._customer_id)
+            )
+
+        conn.commit()
+        conn.close()
+
+        return True, remaining_points, gst_total, grand_total
+
+    except Exception as e:
+        print("process_sale error:", e)
+        try:
+            conn.rollback()
+            conn.close()
+        except:
+            pass
+        return False, None, None, None
+        
 # Rajina:
 def update_customer_membership(customer_id, new_tier):
     try:

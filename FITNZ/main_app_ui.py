@@ -215,16 +215,708 @@ class MainAppPage(ttk.Frame):
         win = CustomerOrderHistoryPage(self, self.logged_in_user)
         win.grab_set()
 
+    def create_staff_interface(self):
+        """Create staff/employee interface with product selection and cart"""
+        # Main container with two columns
+        self.main_frame.grid_columnconfigure(0, weight=2)
+        self.main_frame.grid_columnconfigure(1, weight=1)
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        
+        # Left column - Products and customer selection
+        left_frame = ttk.Frame(self.main_frame)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 15))
+        left_frame.grid_rowconfigure(1, weight=1)
+        left_frame.grid_columnconfigure(0, weight=1)
+        
+        # Right column - Cart and actions
+        right_frame = ttk.Frame(self.main_frame)
+        right_frame.grid(row=0, column=1, sticky="nsew")
+        right_frame.grid_rowconfigure(1, weight=1)
+        right_frame.grid_columnconfigure(0, weight=1)
+        
+        # Customer selection frame
+        customer_frame = ttk.Labelframe(
+            left_frame,
+            text="👥 Select Customer",
+            padding=15,
+            bootstyle="info"
+        )
+        customer_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        
+        customer_selection_frame = ttk.Frame(customer_frame)
+        customer_selection_frame.pack(fill="x")
+        customer_selection_frame.grid_columnconfigure(0, weight=1)
+        
+        # Customer combobox
+        ttk.Label(customer_selection_frame, text="Customer:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        
+        self.customer_var = tk.StringVar(value="Walk-in Customer")
+        self.customer_combo = ttk.Combobox(
+            customer_selection_frame,
+            textvariable=self.customer_var,
+            state="readonly",
+            font=("Segoe UI", 10)
+        )
+        self.customer_combo.grid(row=1, column=0, sticky="ew", padx=(0, 10))
+        self.customer_combo.bind('<<ComboboxSelected>>', self.on_customer_selected)
+        
+        # Load customers button
+        ttk.Button(
+            customer_selection_frame,
+            text="🔄 Load Customers",
+            command=self.load_customers,
+            bootstyle="primary-outline",
+            width=15
+        ).grid(row=1, column=1, sticky="ew")
+        
+        # Customer info display
+        self.customer_info_label = ttk.Label(
+            customer_frame,
+            text="No customer selected",
+            font=("Segoe UI", 9),
+            bootstyle="secondary"
+        )
+        self.customer_info_label.pack(anchor="w", pady=(10, 0))
+        
+        # Products frame
+        products_frame = ttk.Labelframe(
+            left_frame,
+            text="🛍️ Available Products",
+            padding=15,
+            bootstyle="primary"
+        )
+        products_frame.grid(row=1, column=0, sticky="nsew")
+        products_frame.grid_rowconfigure(1, weight=1)
+        products_frame.grid_columnconfigure(0, weight=1)
+        
+        # Search and filter
+        search_frame = ttk.Frame(products_frame)
+        search_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        
+        ttk.Label(search_frame, text="Search:", font=("Segoe UI", 10)).pack(side="left", padx=(0, 10))
+        self.search_var = tk.StringVar()
+        self.search_entry = ttk.Entry(
+            search_frame,
+            textvariable=self.search_var,
+            font=("Segoe UI", 10)
+        )
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.search_entry.bind('<KeyRelease>', self.on_search_changed)
+        
+        ttk.Button(
+            search_frame,
+            text="🔍 Search",
+            command=self.search_products,
+            bootstyle="info-outline",
+            width=10
+        ).pack(side="left")
+        
+        # Products treeview
+        tree_frame = ttk.Frame(products_frame)
+        tree_frame.grid(row=1, column=0, sticky="nsew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        
+        columns = ("ID", "Name", "Price", "Stock", "Category")
+        self.products_tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show="headings",
+            bootstyle="primary",
+            selectmode="browse"
+        )
+        
+        # Configure columns
+        self.products_tree.heading("ID", text="Product ID")
+        self.products_tree.column("ID", width=80, anchor="center")
+        self.products_tree.heading("Name", text="Product Name")
+        self.products_tree.column("Name", width=180, anchor="w")
+        self.products_tree.heading("Price", text="Price ($)")
+        self.products_tree.column("Price", width=80, anchor="e")
+        self.products_tree.heading("Stock", text="Stock")
+        self.products_tree.column("Stock", width=60, anchor="center")
+        self.products_tree.heading("Category", text="Category")
+        self.products_tree.column("Category", width=100, anchor="w")
+        
+        self.products_tree.grid(row=0, column=0, sticky="nsew")
+        
+        # Add double-click event to view product details
+        self.products_tree.bind('<Double-1>', lambda e: self.view_product_details())
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(
+            tree_frame,
+            orient="vertical",
+            command=self.products_tree.yview,
+            bootstyle="secondary-round"
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Product actions
+        product_actions_frame = ttk.Frame(products_frame)
+        product_actions_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        
+        ttk.Button(
+            product_actions_frame,
+            text="➕ Add to Sale",
+            command=self.add_product_to_sale,
+            bootstyle="success-outline",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            product_actions_frame,
+            text="👁️ View Details",
+            command=self.view_product_details,
+            bootstyle="info-outline",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            product_actions_frame,
+            text="🔄 Refresh",
+            command=self.load_products,
+            bootstyle="warning-outline",
+            width=12
+        ).pack(side="left")
+        
+        # Right column - Current Sale
+        sale_frame = ttk.Labelframe(
+            right_frame,
+            text="🛒 Current Sale",
+            padding=15,
+            bootstyle="success"
+        )
+        sale_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 15))
+        sale_frame.grid_rowconfigure(1, weight=1)
+        sale_frame.grid_columnconfigure(0, weight=1)
+        
+        # Sale items treeview
+        sale_tree_frame = ttk.Frame(sale_frame)
+        sale_tree_frame.grid(row=1, column=0, sticky="nsew")
+        sale_tree_frame.grid_rowconfigure(0, weight=1)
+        sale_tree_frame.grid_columnconfigure(0, weight=1)
+        
+        sale_columns = ("Product", "Price", "Qty", "Total")
+        self.sale_tree = ttk.Treeview(
+            sale_tree_frame,
+            columns=sale_columns,
+            show="headings",
+            bootstyle="success",
+            selectmode="browse"
+        )
+        
+        # Configure columns
+        self.sale_tree.heading("Product", text="Product")
+        self.sale_tree.column("Product", width=120, anchor="w")
+        self.sale_tree.heading("Price", text="Price")
+        self.sale_tree.column("Price", width=70, anchor="e")
+        self.sale_tree.heading("Qty", text="Qty")
+        self.sale_tree.column("Qty", width=50, anchor="center")
+        self.sale_tree.heading("Total", text="Total")
+        self.sale_tree.column("Total", width=80, anchor="e")
+        
+        self.sale_tree.grid(row=0, column=0, sticky="nsew")
+        
+        # Sale scrollbar
+        sale_scrollbar = ttk.Scrollbar(
+            sale_tree_frame,
+            orient="vertical",
+            command=self.sale_tree.yview,
+            bootstyle="secondary-round"
+        )
+        sale_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.sale_tree.configure(yscrollcommand=sale_scrollbar.set)
+        
+        # Sale summary
+        summary_frame = ttk.Frame(sale_frame)
+        summary_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        
+        ttk.Label(summary_frame, text="Items:", font=("Segoe UI", 10)).grid(row=0, column=0, sticky="w")
+        self.items_count_label = ttk.Label(summary_frame, text="0", font=("Segoe UI", 10, "bold"), bootstyle="primary")
+        self.items_count_label.grid(row=0, column=1, sticky="w", padx=(5, 20))
+        
+        ttk.Label(summary_frame, text="Total:", font=("Segoe UI", 10)).grid(row=0, column=2, sticky="w")
+        self.total_label = ttk.Label(summary_frame, text="$0.00", font=("Segoe UI", 10, "bold"), bootstyle="success")
+        self.total_label.grid(row=0, column=3, sticky="w", padx=(5, 0))
+        
+        # Sale actions
+        sale_actions_frame = ttk.Frame(sale_frame)
+        sale_actions_frame.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        
+        ttk.Button(
+            sale_actions_frame,
+            text="📝 Edit Quantity",
+            command=self.edit_quantity,
+            bootstyle="info-outline",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            sale_actions_frame,
+            text="🗑️ Remove Item",
+            command=self.remove_sale_item,
+            bootstyle="danger-outline",
+            width=15
+        ).pack(side="left")
+        
+        # Checkout section
+        checkout_frame = ttk.Labelframe(
+            right_frame,
+            text="💳 Checkout",
+            padding=15,
+            bootstyle="warning"
+        )
+        checkout_frame.grid(row=1, column=0, sticky="ew")
+        
+        ttk.Button(
+            checkout_frame,
+            text="💰 Process Payment",
+            command=self.process_payment,
+            bootstyle="success",
+            width=20
+        ).pack(fill="x", ipady=8)
+        
+        ttk.Button(
+            checkout_frame,
+            text="🔄 Clear Sale",
+            command=self.clear_sale,
+            bootstyle="secondary-outline",
+            width=20
+        ).pack(fill="x", ipady=6, pady=(5, 0))
+        
+        # Quick actions frame - MAKE BUTTONS VISIBLE
+        quick_actions_frame = ttk.Labelframe(
+            right_frame,
+            text="🚀 Quick Actions",
+            padding=15,
+            bootstyle="primary"
+        )
+        quick_actions_frame.grid(row=2, column=0, sticky="ew", pady=(15, 0))
+        
+        # Make buttons fill the available space and be clearly visible
+        ttk.Button(
+            quick_actions_frame,
+            text="📦 Product Management",
+            command=self.view_products,
+            bootstyle="info-outline"
+        ).pack(fill="x", pady=5, ipady=8)  # Increased padding for better visibility
+        
+        ttk.Button(
+            quick_actions_frame,
+            text="📊 Sales Reports",
+            command=self.view_sales,
+            bootstyle="success-outline"
+        ).pack(fill="x", pady=5, ipady=8)
+        
+        if self.logged_in_user.role in ["Manager", "Developer", "Owner"]:
+            ttk.Button(
+                quick_actions_frame,
+                text="⚙️ User Management",
+                command=self.manage_users,
+                bootstyle="warning-outline"
+            ).pack(fill="x", pady=5, ipady=8)
+        
+        # Load initial data
+        self.load_customers()
+        self.load_products()
+    
+    def create_manager_interface(self):
+        """Manager Dashboard"""
+        frame = ttk.Frame(self.content_frame, padding=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text="👨‍💼 Manager Dashboard",
+            font=("Segoe UI", 22, "bold"),
+            bootstyle="primary"
+        ).pack(pady=(0, 20))
+
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill="x", pady=10)
+
+        # Manage Users ----> Calls your manage_users() function
+        ttk.Button(
+            button_frame,
+            text="👥 Manage Users",
+            bootstyle="info",
+            command=self.manage_users
+        ).pack(fill="x", pady=10)
+
+        # Add Product
+        ttk.Button(
+            button_frame,
+            text="➕ Add Product",
+            bootstyle="success",
+            command=self.open_add_product_page
+        ).pack(fill="x", pady=10)
+
+        # View Products
+        ttk.Button(
+            button_frame,
+            text="📋 View Products",
+            bootstyle="secondary",
+            command=self.open_view_products_page
+        ).pack(fill="x", pady=10)
+
+        # Membership Upgrades
+        ttk.Button(
+            button_frame,
+            text="⬆️ Upgrade Customer Membership",
+            bootstyle="warning",
+            command=self.open_membership_upgrade_page
+        ).pack(fill="x", pady=10)
+
+        # 📊 SALES REPORT BUTTON (ADD THIS)
+        ttk.Button(
+            button_frame,
+            text="📊 Sales Report",
+            bootstyle="primary-outline",
+            command=lambda: SalesReportPage(self, self.logged_in_user).grab_set()
+        ).pack(fill="x", pady=5)
+
+        # Go back
+        ttk.Button(
+            button_frame,
+            text="← Back",
+            bootstyle="danger-outline",
+            command=lambda: self.show_home()
+        ).pack(fill="x", pady=20)
 
 
+    def load_customers(self):
+        """Load customers into the combobox"""
+        customers = db.get_all_users()
+        customer_list = ["Walk-in Customer"]
+        
+        for customer in customers:
+            if hasattr(customer, 'role') and customer.role == 'Customer':
+                customer_name = customer.get_name() if hasattr(customer, 'get_name') else getattr(customer, 'name', 'Unknown')
+                customer_list.append(f"{customer_name} (ID: {getattr(customer, '_customer_id', 'N/A')})")
+        
+        self.customer_combo['values'] = customer_list
+        if customer_list:
+            self.customer_combo.set(customer_list[0])
+    
+    def on_customer_selected(self, event):
+        """Handle customer selection"""
+        selected = self.customer_var.get()
+        if selected == "Walk-in Customer":
+            self.current_customer = None
+            self.customer_info_label.config(text="Walk-in Customer (No loyalty points)")
+        else:
+            # Extract customer ID from the selection
+            try:
+                customer_id = selected.split("(ID: ")[1].replace(")", "")
+                self.current_customer = db.get_user_by_id(customer_id)
+                if self.current_customer:
+                    points = getattr(self.current_customer, 'loyalty_points', 0)
+                    membership = getattr(self.current_customer, 'membership_level', 'Standard')
+                    self.customer_info_label.config(
+                        text=f"{self.current_customer.get_name()} | {membership} Member | {points} Points"
+                    )
+            except (IndexError, AttributeError):
+                self.current_customer = None
+                self.customer_info_label.config(text="Error loading customer info")
+    
+    def load_products(self):
+        """Load products into the treeview"""
+        for item in self.products_tree.get_children():
+            self.products_tree.delete(item)
+            
+        products = db.get_all_products()
+        for product in products:
+            # Simple category detection based on product name
+            category = "Equipment"
+            if "protein" in product.name.lower() or "supplement" in product.name.lower():
+                category = "Nutrition"
+            elif "yoga" in product.name.lower() or "mat" in product.name.lower():
+                category = "Yoga"
+            elif "band" in product.name.lower():
+                category = "Accessories"
+                
+            self.products_tree.insert(
+                "", "end",
+                values=(
+                    product.product_id, 
+                    product.name, 
+                    f"${product.price:.2f}", 
+                    product.stock,
+                    category
+                )
+            )
+    
+    def on_search_changed(self, event):
+        """Handle real-time search"""
+        self.search_products()
+    
+    def search_products(self):
+        """Filter products based on search term"""
+        search_term = self.search_var.get().lower()
+        
+        for item in self.products_tree.get_children():
+            self.products_tree.delete(item)
+            
+        products = db.get_all_products()
+        for product in products:
+            if search_term in product.name.lower() or search_term in product.product_id.lower():
+                category = "Equipment"
+                if "protein" in product.name.lower() or "supplement" in product.name.lower():
+                    category = "Nutrition"
+                elif "yoga" in product.name.lower() or "mat" in product.name.lower():
+                    category = "Yoga"
+                elif "band" in product.name.lower():
+                    category = "Accessories"
+                    
+                self.products_tree.insert(
+                    "", "end",
+                    values=(
+                        product.product_id, 
+                        product.name, 
+                        f"${product.price:.2f}", 
+                        product.stock,
+                        category
+                    )
+                )
 
+    def save_new_product(self):
+        """Called when Manager clicks 'Add Product' button"""
 
+        pid = self.product_id_entry.get().strip()
+        name = self.product_name_entry.get().strip()
+        price = self.product_price_entry.get().strip()
+        stock = self.product_stock_entry.get().strip()
+        desc = self.product_desc_entry.get().strip()
 
-#Umang Part
+        # Basic validation
+        if not pid:
+            Messagebox.show_error("Product ID is required.", "Error", parent=self)
+            return
+        if not name:
+            Messagebox.show_error("Product name is required.", "Error", parent=self)
+            return
+        if not price.replace('.', '', 1).isdigit():
+            Messagebox.show_error("Invalid price value.", "Error", parent=self)
+            return
+        if not stock.isdigit():
+            Messagebox.show_error("Stock must be a number.", "Error", parent=self)
+            return
 
+        # Call DB function
+        new_product = db.add_product(pid, name, price, stock, desc)
 
+        if new_product:
+            Messagebox.show_info("Product added successfully!", "Success", parent=self)
 
+            # Refresh product list if UI supports it
+            if hasattr(self.parent, "load_products"):
+                self.parent.load_products()
 
+            self.destroy()
+        else:
+            Messagebox.show_error("Failed to add product. Product ID may already exist.", "Error", parent=self)
+
+    def add_product_to_sale(self):
+        """Add selected product to the current sale"""
+        selected = self.products_tree.selection()
+        if not selected:
+            Messagebox.show_warning("Please select a product to add to sale.", "No Selection", parent=self)
+            return
+        
+        product_id = self.products_tree.item(selected[0])['values'][0]
+        product = db.get_product_by_id(product_id)
+        
+        if not product:
+            Messagebox.show_error("Product not found.", "Error", parent=self)
+            return
+        
+        if product.stock <= 0:
+            Messagebox.show_error(f"{product.name} is out of stock.", "Out of Stock", parent=self)
+            return
+        
+        # Check if product already in sale
+        for item in self.sale_items:
+            if item['product'].product_id == product_id:
+                item['quantity'] += 1
+                self.update_sale_display()
+                Messagebox.show_info(f"Added another {product.name} to sale.", "Success", parent=self)
+                return
+        
+        # Add new product to sale
+        self.sale_items.append({
+            'product': product,
+            'quantity': 1
+        })
+        
+        self.update_sale_display()
+        Messagebox.show_info(f"Added {product.name} to sale.", "Success", parent=self)
+    
+    def update_sale_display(self):
+        """Update the sale display with current items and totals"""
+        # Clear current display
+        for item in self.sale_tree.get_children():
+            self.sale_tree.delete(item)
+        
+        total_amount = 0
+        total_items = 0
+        
+        # Add items to sale treeview
+        for item in self.sale_items:
+            product = item['product']
+            quantity = item['quantity']
+            item_total = product.price * quantity
+            
+            self.sale_tree.insert(
+                "", "end",
+                values=(
+                    product.name,
+                    f"${product.price:.2f}",
+                    quantity,
+                    f"${item_total:.2f}"
+                )
+            )
+            
+            total_amount += item_total
+            total_items += quantity
+        
+        # Update summary
+        self.items_count_label.config(text=str(total_items))
+        self.total_label.config(text=f"${total_amount:.2f}")
+    
+    def edit_quantity(self):
+        """Edit quantity of selected sale item"""
+        selected = self.sale_tree.selection()
+        if not selected:
+            Messagebox.show_warning("Please select an item to edit quantity.", "No Selection", parent=self)
+            return
+        
+        index = self.sale_tree.index(selected[0])
+        current_item = self.sale_items[index]
+        
+        # Create quantity dialog
+        dialog = bs.Toplevel(self)
+        dialog.title("Edit Quantity")
+        dialog.geometry("300x150")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(expand=True, fill="both")
+        
+        ttk.Label(
+            frame,
+            text=f"Edit quantity for {current_item['product'].name}:",
+            font=("Segoe UI", 11)
+        ).pack(pady=(0, 15))
+        
+        qty_frame = ttk.Frame(frame)
+        qty_frame.pack(pady=10)
+        
+        ttk.Label(qty_frame, text="Quantity:").pack(side="left", padx=(0, 10))
+        
+        qty_var = tk.StringVar(value=str(current_item['quantity']))
+        qty_spinbox = ttk.Spinbox(
+            qty_frame,
+            from_=1,
+            to=100,
+            textvariable=qty_var,
+            width=10,
+            font=("Segoe UI", 11)
+        )
+        qty_spinbox.pack(side="left")
+        
+        def update_quantity():
+            try:
+                new_qty = int(qty_var.get())
+                if new_qty < 1:
+                    Messagebox.show_error("Quantity must be at least 1.", "Invalid Quantity", parent=dialog)
+                    return
+                
+                if new_qty > current_item['product'].stock:
+                    Messagebox.show_error(f"Only {current_item['product'].stock} available in stock.", "Insufficient Stock", parent=dialog)
+                    return
+                
+                current_item['quantity'] = new_qty
+                self.update_sale_display()
+                dialog.destroy()
+                
+            except ValueError:
+                Messagebox.show_error("Please enter a valid number.", "Invalid Input", parent=dialog)
+        
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(side="bottom", fill="x", pady=(20, 0))
+        
+        ttk.Button(
+            btn_frame,
+            text="Update",
+            command=update_quantity,
+            bootstyle="success",
+            width=15
+        ).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(
+            btn_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            bootstyle="secondary",
+            width=15
+        ).pack(side="right")
+        
+        qty_spinbox.focus_set()
+        qty_spinbox.select_range(0, tk.END)
+    
+    def remove_sale_item(self):
+        """Remove selected item from sale"""
+        selected = self.sale_tree.selection()
+        if not selected:
+            Messagebox.show_warning("Please select an item to remove.", "No Selection", parent=self)
+            return
+        
+        index = self.sale_tree.index(selected[0])
+        product_name = self.sale_items[index]['product'].name
+        
+        if Messagebox.yesno(f"Remove {product_name} from sale?", "Confirm Removal", parent=self):
+            self.sale_items.pop(index)
+            self.update_sale_display()
+            Messagebox.show_info(f"Removed {product_name} from sale.", "Success", parent=self)
+    
+    def process_payment(self):
+        """Process payment for the current sale"""
+        if not self.sale_items:
+            Messagebox.show_error("No items in the current sale.", "Empty Sale", parent=self)
+            return
+        
+        # Check stock availability
+        for item in self.sale_items:
+            product = item['product']
+            if product.stock < item['quantity']:
+                Messagebox.show_error(
+                    f"Not enough stock for {product.name}. Available: {product.stock}, Requested: {item['quantity']}",
+                    "Insufficient Stock",
+                    parent=self
+                )
+                return
+        
+        # Open POS checkout
+        checkout_window = POSCheckoutPage(self, self.sale_items, self.current_customer, self.logged_in_user)
+        checkout_window.grab_set()
+    
+    def clear_sale(self):
+        """Clear the current sale"""
+        if not self.sale_items:
+            Messagebox.show_info("Sale is already empty.", "Info", parent=self)
+            return
+        
+        if Messagebox.yesno("Clear all items from the current sale?", "Confirm Clear", parent=self):
+            self.sale_items.clear()
+            self.update_sale_display()
+            Messagebox.show_info("Sale cleared.", "Success", parent=self)
+    
+    def view_products(self):
+        """Open product management interface for staff"""
+        ProductManagementPage(self, self.logged_in_user)
 
 # Imran Part
 

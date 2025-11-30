@@ -79,6 +79,135 @@ def add_user(name, contact, username, password, role, address):
         return None
     finally:
         conn.close()
+
+
+def add_product(product_id, name, price, stock):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        # Insert into DB
+        cur.execute(
+            "INSERT INTO products (product_id, name, price, stock) VALUES (?, ?, ?, ?)",
+            (product_id, name, float(price), int(stock))
+        )
+        conn.commit()
+
+        # Fetch inserted record
+        row = cur.execute(
+            "SELECT product_id, name, price, stock FROM products WHERE product_id = ?",
+            (product_id,)
+        ).fetchone()
+
+        if row:
+            return Product(row[0], row[1], row[2], row[3])
+        return None
+
+    except Exception as e:
+        conn.rollback()
+        print("add_product error:", e)
+        return None
+
+    finally:
+        conn.close()
+
+
+
+def get_all_products():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if USE_MYSQL and mysql:
+        cur.execute("SELECT product_id, name, price, stock FROM products")
+    else:
+        cur.execute("SELECT product_id, name, price, stock FROM products")
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [Product(r[0], r[1], r[2], r[3]) for r in rows]
+
+
+def get_product_by_id(pid):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if USE_MYSQL and mysql:
+        cur.execute("SELECT product_id, name, price, stock FROM products WHERE product_id=%s OR id=%s", (pid, pid))
+    else:
+        cur.execute("SELECT product_id, name, price, stock FROM products WHERE product_id=? OR id=?", (pid, pid))
+
+    row = cur.fetchone()
+    conn.close()
+
+    if row:
+        return Product(row[0], row[1], row[2], row[3])
+
+    return None
+
+
+def update_product(pid, name, price, stock):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE products SET name=?, price=?, stock=? WHERE product_id=?",
+            (name, float(price), int(stock), pid)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print("update_product error:", e)
+        return False
+    finally:
+        conn.close()
+
+
+def delete_product(pid):
+    conn = get_conn(); cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM products WHERE product_id=?", (pid,))
+        conn.commit()
+        return True
+    except:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+
+def get_all_users():
+    conn = get_conn(); cur = conn.cursor()
+    rows = cur.execute("SELECT * FROM users").fetchall(); conn.close()
+    result = []
+    for r in rows:
+        role_val = r['role'] if 'role' in r.keys() else ''
+        result.append(row_to_customer(r) if role_val and role_val.lower()=='customer' else row_to_employee(r))
+    return result
+
+def get_user_by_id(uid):
+    conn = get_conn(); cur = conn.cursor()
+    if USE_MYSQL and mysql:
+        r = cur.execute("SELECT * FROM users WHERE id=%s OR user_id=%s OR username=%s",(uid,uid,uid,)).fetchone()
+    else:
+        r = cur.execute("SELECT * FROM users WHERE id=? OR user_id=? OR username=?", (uid, uid, uid)).fetchone()
+    conn.close()
+    if not r: return None
+    role_val = r['role'] if 'role' in r.keys() else ''
+    return row_to_customer(r) if role_val and role_val.lower()=='customer' else row_to_employee(r)
+
+def delete_user_by_id(uid):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        if USE_MYSQL and mysql:
+            cur.execute("DELETE FROM users WHERE id=%s OR user_id=%s OR username=%s",(uid,uid,uid,))
+        else:
+            cur.execute("DELETE FROM users WHERE id=? OR user_id=? OR username=?", (uid, uid, uid))
+        conn.commit(); conn.close(); return True
+    except:
+        return False
+
 # ===============================================
 # Code Owner: Sahil (US: Sale/Checkout Processing)
 # Code Owner: Rajina (US: Discount Management - Membership tiers)

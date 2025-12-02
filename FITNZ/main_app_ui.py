@@ -917,9 +917,22 @@ class MainAppPage(ttk.Frame):
     def view_products(self):
         """Open product management interface for staff"""
         ProductManagementPage(self, self.logged_in_user)
+  
+# ===============================================
+# Code Owner: Imran (US: Reports/Admin Access)
+# ===============================================
 
-# Imran Part
-
+    def view_sales(self):
+        """Open detailed sales report interface"""
+        SalesReportPage(self, self.logged_in_user)
+    
+    def manage_users(self):
+        """Open user management (admin function)"""
+        if self.logged_in_user.role in ["Manager", "Developer", "Owner"]:
+            admin_window = AdminPage(self, self.logged_in_user)
+            admin_window.grab_set()
+        else:
+            Messagebox.show_error("You don't have permission to access this feature.", "Access Denied", parent=self)
 
 
     def add_to_cart(self):

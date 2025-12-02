@@ -208,4 +208,4 @@ class EditProductPage(bs.Toplevel):
         else:
             Messagebox.show_error("Failed to update product.", "Error", parent=self)
 
-
+# Product_ui
